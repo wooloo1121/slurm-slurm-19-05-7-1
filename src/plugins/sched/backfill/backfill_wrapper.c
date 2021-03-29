@@ -110,9 +110,9 @@ uint32_t slurm_sched_p_initial_priority(uint32_t last_prio,
 					struct job_record *job_ptr)
 {
     PyObject *pName, *pModule, *pFunc;
-    PyObject *pArgs, *pValue, *pValue_array, *pReturn;
+    PyObject *pArgs, *pValue, *pReturn;
 
-    PyRun_SimpleString("import sys\nsys.path.append('/home/slurm/')");
+    PyRun_SimpleString("import sys\nsys.path.append('/lustre/home/acct-hpc/hpcwky/sysmon/IOpattern/train_v1/')");
     
     pName = PyString_FromString("predict_func_v1");
     /* Error checking of pName left out */
