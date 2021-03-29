@@ -51,7 +51,8 @@
 #include "src/slurmctld/slurmctld.h"
 #include "backfill.h"
 
-#include </usr/include/python2.7/Python.h>
+#include <Python.h>
+#include <dlfcn.h>
 
 const char		plugin_name[]	= "Slurm Backfill Scheduler plugin";
 const char		plugin_type[]	= "sched/backfill";
@@ -80,6 +81,9 @@ int init( void )
 
 	slurm_mutex_unlock( &thread_flag_mutex );
 
+        dlopen("libpython2.7.so", RTLD_LAZY | RTLD_GLOBAL);
+        Py_Initialize();
+
 	return SLURM_SUCCESS;
 }
 
@@ -91,6 +95,7 @@ void fini( void )
 		stop_backfill_agent();
 		pthread_join(backfill_thread, NULL);
 		backfill_thread = 0;
+                Py_Finalize();
 	}
 	slurm_mutex_unlock( &thread_flag_mutex );
 }
@@ -104,48 +109,55 @@ int slurm_sched_p_reconfig( void )
 uint32_t slurm_sched_p_initial_priority(uint32_t last_prio,
 					struct job_record *job_ptr)
 {
-    PyObject *pName, *pModule, *pDict, *pFunc;
-    PyObject *pArgs, *pValue;
-    int i;
+    PyObject *pName, *pModule, *pFunc;
+    PyObject *pArgs, *pValue, *pValue_array, *pReturn;
 
-    Py_Initialize();
-    PyRun_SimpleString("import sys\nsys.path.append('/lustre/home/acct-hpc/hpcwky/sysmon/IOpattern/train_v1/')");
+    PyRun_SimpleString("import sys\nsys.path.append('/home/slurm/')");
+    
     pName = PyString_FromString("predict_func_v1");
     /* Error checking of pName left out */
-
     pModule = PyImport_Import(pName);
     Py_DECREF(pName);
-
 
     if (pModule != NULL) {
         pFunc = PyObject_GetAttrString(pModule, "priority");
         /* pFunc is a new reference */
-
         if (pFunc && PyCallable_Check(pFunc)) {
-            pArgs = PyTuple_New(1);
-            pValue = PyInt_FromUnsignedLong((unsigned long)job_ptr->job_id);
+            if (job_ptr->details && job_ptr->details->argv) {
+                pValue = PyString_FromString(job_ptr->details->argv[0]);
+            }
+            else {
+                Py_DECREF(pFunc);
+                Py_DECREF(pModule);
+                info("no script path information");
+                return priority_g_set(last_prio, job_ptr);   
+            }
 
             if (!pValue) {
-                Py_DECREF(pArgs);
+                Py_DECREF(pFunc);
                 Py_DECREF(pModule);
-                info("Cannot convert job id");
+                info("Cannot convert job script path");
                 return priority_g_set(last_prio, job_ptr);
             }
+            pArgs = PyTuple_New(1);
             PyTuple_SetItem(pArgs, 0, pValue);
-            pValue = PyObject_CallObject(pFunc, pArgs);
+            pReturn = PyObject_CallObject(pFunc, pArgs);
             Py_DECREF(pArgs);
-            if (pValue != NULL) {
-                //printf("Result of call: %ld\n", PyInt_AsLong(pValue));
-                Py_DECREF(pValue);
-                if (PyInt_AsLong(pValue) == 1)
+            if (pReturn != NULL) {
+                if (PyInt_AsLong(pReturn) == 1)
                 {
-                	Py_Finalize();
+                        Py_DECREF(pReturn);
+                        Py_DECREF(pFunc);
+                        Py_DECREF(pModule);
 			info("Job %u delayed! last_prio %u reduced to %u.", job_ptr->job_id, last_prio, last_prio / 2);
                 	return priority_g_set(last_prio / 2, job_ptr);
                 }
                 else
                 {
-                	Py_Finalize();
+                        Py_DECREF(pReturn);
+                        Py_DECREF(pFunc);
+                        Py_DECREF(pModule);
+                        info("Job %u not delayed! last_prio %u.", job_ptr->job_id, last_prio);
                         return priority_g_set(last_prio, job_ptr);
 	        }
 	    }
@@ -164,9 +176,7 @@ uint32_t slurm_sched_p_initial_priority(uint32_t last_prio,
     }
     else {
         info("Failed to load predict_func");
-        return priority_g_set(last_prio, job_ptr);
     }
-    Py_Finalize();
     return priority_g_set(last_prio, job_ptr);
 
 }

@@ -6,7 +6,9 @@ AM_CXXFLAGS = -fexceptions
 
 PLUGIN_FLAGS = -module -avoid-version --export-dynamic
 
-AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/src/common
+AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/src/common -I/usr/include/python2.7 -I/usr/include
+
+PLUGIN_FLAGS += -lpthread -ldl -lutil -lm -lpython2.7
 
 pkglib_LTLIBRARIES = sched_backfill.la
 
