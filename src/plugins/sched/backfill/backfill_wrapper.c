@@ -79,10 +79,46 @@ int init( void )
 	/* since we do a join on this later we don't make it detached */
 	slurm_thread_create(&backfill_thread, backfill_agent, NULL);
 
-	slurm_mutex_unlock( &thread_flag_mutex );
-
         dlopen("libpython2.7.so", RTLD_LAZY | RTLD_GLOBAL);
         Py_Initialize();
+        PyObject *pName;
+        pName = PyString_FromString("tensorflow");
+        PyImport_Import(pName);
+        Py_DECREF(pName);
+        PyObject *ptype, *pvalue, *ptraceback;
+        char *pStrErrorMessage;
+        PyErr_Fetch(&ptype, &pvalue, &ptraceback);
+        if (pvalue != NULL) {        
+            pStrErrorMessage = PyString_AsString(pvalue);
+            info("%s", pStrErrorMessage);
+        }
+        Py_XDECREF(ptype);
+        Py_XDECREF(pvalue);
+        Py_XDECREF(ptraceback);
+        
+        pName = PyString_FromString("gensim");
+        PyImport_Import(pName);
+        Py_DECREF(pName);
+        PyErr_Fetch(&ptype, &pvalue, &ptraceback);
+        if (pvalue != NULL) {
+            pStrErrorMessage = PyString_AsString(pvalue);
+            info("%s", pStrErrorMessage);
+        }
+        Py_XDECREF(ptype);
+        Py_XDECREF(pvalue);
+        Py_XDECREF(ptraceback);
+        
+        PyObject *sys = PyImport_ImportModule("sys");
+        PyObject *path = PyObject_GetAttrString(sys, "path");
+        PyObject *path_insert = PyString_FromString("/lustre/home/acct-hpc/hpcwky/sysmon/IOpattern/train_v1");
+        PyList_Insert(path, 0, path_insert);
+        pName = PyString_FromString("predict_func_v1");
+        PyObject *pModule = PyImport_Import(pName);
+        Py_DECREF(pName);
+        Py_DECREF(sys);
+        Py_DECREF(path);
+        Py_DECREF(path_insert);
+	slurm_mutex_unlock( &thread_flag_mutex );
 
 	return SLURM_SUCCESS;
 }
@@ -109,74 +145,6 @@ int slurm_sched_p_reconfig( void )
 uint32_t slurm_sched_p_initial_priority(uint32_t last_prio,
 					struct job_record *job_ptr)
 {
-    PyObject *pName, *pModule, *pFunc;
-    PyObject *pArgs, *pValue, *pReturn;
-
-    PyRun_SimpleString("import sys\nsys.path.append('/lustre/home/acct-hpc/hpcwky/sysmon/IOpattern/train_v1/')");
-    
-    pName = PyString_FromString("predict_func_v1");
-    /* Error checking of pName left out */
-    pModule = PyImport_Import(pName);
-    Py_DECREF(pName);
-
-    if (pModule != NULL) {
-        pFunc = PyObject_GetAttrString(pModule, "priority");
-        /* pFunc is a new reference */
-        if (pFunc && PyCallable_Check(pFunc)) {
-            if (job_ptr->details && job_ptr->details->argv) {
-                pValue = PyString_FromString(job_ptr->details->argv[0]);
-            }
-            else {
-                Py_DECREF(pFunc);
-                Py_DECREF(pModule);
-                info("no script path information");
-                return priority_g_set(last_prio, job_ptr);   
-            }
-
-            if (!pValue) {
-                Py_DECREF(pFunc);
-                Py_DECREF(pModule);
-                info("Cannot convert job script path");
-                return priority_g_set(last_prio, job_ptr);
-            }
-            pArgs = PyTuple_New(1);
-            PyTuple_SetItem(pArgs, 0, pValue);
-            pReturn = PyObject_CallObject(pFunc, pArgs);
-            Py_DECREF(pArgs);
-            if (pReturn != NULL) {
-                if (PyInt_AsLong(pReturn) == 1)
-                {
-                        Py_DECREF(pReturn);
-                        Py_DECREF(pFunc);
-                        Py_DECREF(pModule);
-			info("Job %u delayed! last_prio %u reduced to %u.", job_ptr->job_id, last_prio, last_prio / 2);
-                	return priority_g_set(last_prio / 2, job_ptr);
-                }
-                else
-                {
-                        Py_DECREF(pReturn);
-                        Py_DECREF(pFunc);
-                        Py_DECREF(pModule);
-                        info("Job %u not delayed! last_prio %u.", job_ptr->job_id, last_prio);
-                        return priority_g_set(last_prio, job_ptr);
-	        }
-	    }
-            else {
-                Py_DECREF(pFunc);
-                Py_DECREF(pModule);
-                info("Call failed");
-                return priority_g_set(last_prio, job_ptr);
-            }
-        }
-        else {
-            info("Cannot find function priority");
-        }
-        Py_XDECREF(pFunc);
-        Py_DECREF(pModule);
-    }
-    else {
-        info("Failed to load predict_func");
-    }
     return priority_g_set(last_prio, job_ptr);
 
 }

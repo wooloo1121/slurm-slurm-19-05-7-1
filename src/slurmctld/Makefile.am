@@ -4,7 +4,7 @@
 AUTOMAKE_OPTIONS = foreign
 CLEANFILES = core.*
 
-AM_CPPFLAGS = -I$(top_srcdir)
+AM_CPPFLAGS = -I$(top_srcdir) -I/usr/include/python2.7 -I/usr/include
 
 # noinst_LTLIBRARIES = libslurmctld.la
 # libslurmctld_la_LDFLAGS  = $(LIB_LDFLAGS) -module --export-dynamic
@@ -77,7 +77,7 @@ sbin_PROGRAMS = slurmctld
 depend_libs = $(top_builddir)/src/common/libdaemonize.la
 
 slurmctld_LDADD = $(depend_libs) $(LIB_SLURM) $(DL_LIBS)
-slurmctld_LDFLAGS = -export-dynamic $(CMD_LDFLAGS)
+slurmctld_LDFLAGS = -export-dynamic $(CMD_LDFLAGS) -Wl,-E -lpthread -ldl -lutil -lm -lpython2.7
 
 slurmctld_DEPENDENCIES = $(LIB_SLURM_BUILD) $(depend_libs)
 

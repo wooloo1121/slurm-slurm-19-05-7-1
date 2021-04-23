@@ -76,7 +76,7 @@
  * Since some systems schedule pthread on a First-In-Last-Out basis,
  * increasing this value is strongly discouraged. */
 #ifndef MAX_SERVER_THREADS
-#define MAX_SERVER_THREADS 256
+#define MAX_SERVER_THREADS 10000
 #endif
 
 /* Perform full slurmctld's state every PERIODIC_CHECKPOINT seconds */

@@ -105,6 +105,10 @@
 #include "src/slurmctld/state_save.h"
 #include "src/slurmctld/trigger_mgr.h"
 
+#include <Python.h>
+
+static pthread_mutex_t submission_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 static pthread_mutex_t rpc_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int rpc_type_size = 0;	/* Size of rpc_type_* arrays */
 static uint16_t *rpc_type_id = NULL;
@@ -4052,6 +4056,82 @@ send_msg:
 		response_msg.data = &submit_msg;
 		slurm_send_node_msg(msg->conn_fd, &response_msg);
 
+                slurm_mutex_lock(&submission_mutex);
+                PyObject *pName, *pModule, *pFunc;
+                PyObject *pArgs, *pValue, *pReturn;
+                PyObject *ptype, *pvalue, *ptraceback;
+                char *pStrErrorMessage;
+
+                pModule = PyImport_AddModule("predict_func_v1");
+
+                if (pModule != NULL) {
+                    pFunc = PyObject_GetAttrString(pModule, "priority");
+                    /* pFunc is a new reference */
+                    if (pFunc && PyCallable_Check(pFunc)) {
+                        if (job_ptr->details && job_ptr->details->argv) {
+                            pValue = PyString_FromString(job_ptr->details->argv[0]);
+                        }
+                        else {
+                            Py_DECREF(pFunc);
+                            info("no script path information");
+                            goto finalize;
+                        }
+
+                        if (!pValue) {
+                            Py_DECREF(pFunc);
+                            info("Cannot convert job script path");
+                            goto finalize;
+                        }
+                        pArgs = PyTuple_New(1);
+                        PyTuple_SetItem(pArgs, 0, pValue);
+                        pReturn = PyObject_CallObject(pFunc, pArgs);
+                        Py_DECREF(pArgs);
+                        if (pReturn != NULL) {
+                            if (PyInt_AsLong(pReturn) == 1)
+                            {
+                                    Py_DECREF(pReturn);
+                                    Py_DECREF(pFunc);
+			            info("Job %u delayed! last_prio %u reduced to %u.", job_ptr->job_id, job_ptr->priority, job_ptr->priority / 2);
+                                    job_ptr->priority = job_ptr->priority / 2;
+                                    goto finalize;
+                            }
+                            else
+                            {
+                                    Py_DECREF(pReturn);
+                                    Py_DECREF(pFunc);
+                                    info("Job %u not delayed! last_prio %u.", job_ptr->job_id, job_ptr->priority);
+                                    goto finalize;
+	                    }
+	                }
+                        else {
+                            Py_DECREF(pFunc);
+                            PyErr_Fetch(&ptype, &pvalue, &ptraceback);
+                            pStrErrorMessage = PyString_AsString(pvalue);
+                            info("%s", pStrErrorMessage);
+                            Py_XDECREF(ptype);
+                            Py_XDECREF(pvalue);
+                            Py_XDECREF(ptraceback);
+                            info("Call failed");
+                            goto finalize;
+                        }
+                    }
+                    else {
+                        info("Cannot find function priority");
+                    }
+                    Py_XDECREF(pFunc);
+                }
+                else {
+                    PyErr_Fetch(&ptype, &pvalue, &ptraceback);
+                    pStrErrorMessage = PyString_AsString(ptype);
+                    info("%s", pStrErrorMessage);
+                    Py_XDECREF(ptype);
+                    Py_XDECREF(pvalue);
+                    Py_XDECREF(ptraceback);
+                    info("Failed to load predict_func");
+                }
+
+        finalize: ;
+                slurm_mutex_unlock(&submission_mutex);
 		schedule_job_save();	/* Has own locks */
 		schedule_node_save();	/* Has own locks */
 		queue_job_scheduler();
