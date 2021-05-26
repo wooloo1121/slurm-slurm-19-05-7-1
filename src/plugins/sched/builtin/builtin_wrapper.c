@@ -50,6 +50,9 @@
 #include "src/slurmctld/slurmctld.h"
 #include "src/plugins/sched/builtin/builtin.h"
 
+#include <Python.h>
+#include <dlfcn.h>
+
 const char		plugin_name[]	= "Slurm Built-in Scheduler plugin";
 const char		plugin_type[]	= "sched/builtin";
 const uint32_t		plugin_version	= SLURM_VERSION_NUMBER;
@@ -72,6 +75,48 @@ int init(void)
 	/* since we do a join on this later we don't make it detached */
 	slurm_thread_create(&builtin_thread, builtin_agent, NULL);
 
+        dlopen("libpython2.7.so", RTLD_LAZY | RTLD_GLOBAL);
+        Py_Initialize();
+        PyObject *pName;
+        info("before import tensorflow");
+        pName = PyString_FromString("tensorflow");
+        PyImport_Import(pName);
+        info("after import tensorflow");
+        Py_DECREF(pName);
+        PyObject *ptype, *pvalue, *ptraceback;
+        char *pStrErrorMessage;
+        PyErr_Fetch(&ptype, &pvalue, &ptraceback);
+        if (pvalue != NULL) {
+            pStrErrorMessage = PyString_AsString(pvalue);
+            info("%s", pStrErrorMessage);
+        }
+        Py_XDECREF(ptype);
+        Py_XDECREF(pvalue);
+        Py_XDECREF(ptraceback);
+
+        pName = PyString_FromString("gensim");
+        PyImport_Import(pName);
+        Py_DECREF(pName);
+        PyErr_Fetch(&ptype, &pvalue, &ptraceback);
+        if (pvalue != NULL) {
+            pStrErrorMessage = PyString_AsString(pvalue);
+            info("%s", pStrErrorMessage);
+        }
+        Py_XDECREF(ptype);
+        Py_XDECREF(pvalue);
+        Py_XDECREF(ptraceback);
+
+        PyObject *sys = PyImport_ImportModule("sys");
+        PyObject *path = PyObject_GetAttrString(sys, "path");
+        PyObject *path_insert = PyString_FromString("/lustre/home/acct-hpc/hpcwky/sysmon/IOpattern/train_v1");
+        PyList_Insert(path, 0, path_insert);
+        pName = PyString_FromString("predict_func_v1");
+        PyObject *pModule = PyImport_Import(pName);
+        Py_DECREF(pName);
+        Py_DECREF(sys);
+        Py_DECREF(path);
+        Py_DECREF(path_insert);
+
 	slurm_mutex_unlock( &thread_flag_mutex );
 
 	return SLURM_SUCCESS;
@@ -85,6 +130,7 @@ void fini(void)
 		stop_builtin_agent();
 		pthread_join(builtin_thread, NULL);
 		builtin_thread = 0;
+                Py_Finalize();
 	}
 	slurm_mutex_unlock( &thread_flag_mutex );
 }
